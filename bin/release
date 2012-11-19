@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # bin/release <build-dir>
 
+name=$(cat $1/.godir)
 cat <<EOF
 ---
 config_vars:
-  PATH: /app/.go/bin:/usr/local/bin:/usr/bin:/bin
-  GOROOT: /app/.go
+  PATH: /app/bin:/app/.go/bin:/app/.goroot/bin:/usr/local/bin:/usr/bin:/bin
+  GOROOT: /app/.goroot
+  GOPATH: /app/.go
 default_process_types:
-  web: revel run _app prod \$PORT
+  web: revel run $name prod \$PORT
 EOF
 

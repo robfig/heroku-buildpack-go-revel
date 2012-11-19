@@ -21,11 +21,24 @@ virtualenv() {
     python "$buildpack/vendor/virtualenv-1.7/virtualenv.py" "$@"
 }
 
-if test -d $cache/go-$ver
+if ! test -f $build/.godir
+then
+    echo >&2 " !     A .godir is required."
+    echo >&2 " !     See https://gist.github.com/299535bbf56bf3016cba for instructions."
+    exit 1
+fi
+
+if test -e $build/bin && ! test -d $build/bin
+then
+    echo >&2 " !     File bin exists and is not a directory."
+    exit 1
+fi
+
+if test -d $cache/go-$ver/go
 then
     echo "-----> Using Go $ver"
 else
-    rm -rf $cache/go-$ver/* # be sure not to build up cruft
+    rm -rf $cache/* # be sure not to build up cruft
     mkdir -p $cache/go-$ver
     cd $cache/go-$ver
     echo -n "-----> Installing Go $ver..."
@@ -35,29 +48,39 @@ else
     echo " done"
 fi
 
-cp -R $cache/go-$ver/go $build/.go
+cp -R $cache/go-$ver/go $build/.goroot
 
-export GOROOT=$build/.go
+GOROOT=$build/.goroot export GOROOT
+GOPATH=$build/.go export GOPATH
+PATH=$GOPATH/bin:$GOROOT/bin:$PATH
 
-if ! (which hg > /dev/null)
+
+if ! (which hg > /dev/null && which bzr > /dev/null)
 then
     echo -n "       Installing Virtualenv..."
     virtualenv --python $python --distribute --never-download --prompt='(venv) ' $venv > /dev/null 2>&1
-    echo -n "running virtualenv"
     . $venv/bin/activate > /dev/null 2>&1
     echo " done"
 
     echo -n "       Installing Mercurial..."
     pip install --use-mirrors mercurial > /dev/null 2>&1
     echo " done"
+
+    echo -n "       Installing Bazaar..."
+    pip install --use-mirrors bzr > /dev/null 2>&1
+    echo " done"
 fi
 
-echo "-----> Copying src to .go/src/pkg/_app"
-mkdir -p $build/.go/src/pkg/_app
-mv $build/* $build/.go/src/pkg/_app
+name=$(cat $build/.godir)
+p=$GOPATH/src/$name
+mkdir -p $p
+cp -R $build/* $p
 
 unset GIT_DIR # unset git dir or it will mess with goinstall
-echo "-----> Getting and building Revel"
-cd $build/.go
-bin/go get github.com/robfig/revel | sed -u 's/^/       /'
-bin/go build -o bin/revel github.com/robfig/revel/cmd | sed -u 's/^/       /'
+echo "-----> Running: go get ./..."
+cd $p
+go get ./... | sed -u 's/^/       /'
+
+mkdir -p $build/bin
+go get github.com/robfig/revel
+go build -o $build/bin/revel github.com/robfig/revel/cmd
