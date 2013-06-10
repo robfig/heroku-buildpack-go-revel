@@ -82,5 +82,4 @@ cd $p
 go get -tags heroku ./...
 
 mkdir -p $build/bin
-go get github.com/robfig/revel
-go build -o $build/bin/revel github.com/robfig/revel/cmd
+go get github.com/robfig/revel/revel
