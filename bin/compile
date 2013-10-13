@@ -95,7 +95,11 @@ else
 fi
 
 mkdir -p $build/bin
-mv $GOPATH/bin/* $build/bin
+if test -d $GOPATH/bin 
+then
+    mv $GOPATH/bin/* $build/bin
+fi
+
 rm -rf $build/.heroku
 
 mkdir -p $build/.profile.d
