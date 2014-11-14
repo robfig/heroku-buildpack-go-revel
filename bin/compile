@@ -6,9 +6,9 @@ set -eo pipefail
 mkdir -p "$1" "$2"
 build=$(cd "$1/" && pwd)
 cache=$(cd "$2/" && pwd)
-ver=${GOVERSION:-1.1.2}
+ver=${GOVERSION:-1.3.3}
 file=${GOFILE:-go$ver.$(uname|tr A-Z a-z)-amd64.tar.gz}
-url=${GOURL:-http://go.googlecode.com/files/$file}
+url=${GOURL:-https://storage.googleapis.com/golang/$file}
 buildpack=$(dirname $(dirname $0))
 arch=$(uname -m|tr A-Z a-z)
 if test $arch = x86_64
@@ -23,7 +23,7 @@ python=python2.7
 PATH=$buildpack/$plat/bin:$venv/bin:$PATH
 
 virtualenv() {
-    python "$buildpack/vendor/virtualenv-1.7/virtualenv.py" "$@"
+    python "$buildpack/vendor/virtualenv-1.11.6/virtualenv.py" "$@"
 }
 
 if test -f $build/Godeps
