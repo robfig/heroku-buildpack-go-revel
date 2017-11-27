@@ -1,14 +1,43 @@
 #!/bin/bash
-# usage: bin/compile <build-dir> <cache-dir>
+# usage: bin/compile <build-dir> <cache-dir> <env-dir>
 
 set -eo pipefail
+
+# Go releases for Darwin beginning with 1.2rc1
+# have included more than one build, depending
+# on the specific version of Mac OS X. Try to
+# account for that, but don't try too hard.
+# This doesn't affect Heroku builds, it's only
+# for testing on Darwin systems.
+platext() {
+    case $1 in
+    go1.0*|go1.1beta*|go1.1rc*|go1.1|go1.1.*) return ;;
+    esac
+    case $(uname|tr A-Z a-z) in
+    darwin) printf %s -osx10.8 ;;
+    esac
+}
+
+# Go releases have moved to a new URL scheme
+# starting with Go version 1.2.2. Return the old
+# location for known old versions and the new
+# location otherwise.
+urlfor() {
+    ver=$1
+    file=$2
+    case $ver in
+    go1.0*|go1.1beta*|go1.1rc*|go1.1|go1.1.*|go1.2beta*|go1.2rc*|go1.2|go1.2.1)
+        echo http://go.googlecode.com/files/$file
+        ;;
+    *)
+        echo https://storage.googleapis.com/golang/$file
+        ;;
+    esac
+}
 
 mkdir -p "$1" "$2"
 build=$(cd "$1/" && pwd)
 cache=$(cd "$2/" && pwd)
-ver=${GOVERSION:-1.1.2}
-file=${GOFILE:-go$ver.$(uname|tr A-Z a-z)-amd64.tar.gz}
-url=${GOURL:-http://go.googlecode.com/files/$file}
 buildpack=$(dirname $(dirname $0))
 arch=$(uname -m|tr A-Z a-z)
 if test $arch = x86_64
@@ -23,18 +52,29 @@ python=python2.7
 PATH=$buildpack/$plat/bin:$venv/bin:$PATH
 
 virtualenv() {
-    python "$buildpack/vendor/virtualenv-1.7/virtualenv.py" "$@"
+    python "$buildpack/vendor/virtualenv-1.11.6/virtualenv.py" "$@"
 }
 
 if test -f $build/Godeps
-then name=$(<$build/Godeps jq -r .ImportPath)
+then
+    name=$(<$build/Godeps jq -r .ImportPath)
+    ver=$(<$build/Godeps jq -r .GoVersion)
+elif test -d $build/Godeps
+then
+    name=$(<$build/Godeps/Godeps.json jq -r .ImportPath)
+    ver=$(<$build/Godeps/Godeps.json jq -r .GoVersion)
 elif test -f $build/.godir
-then name=$(cat $build/.godir)
+then
+    name=$(cat $build/.godir)
+    ver=go${GOVERSION:-1.4}
 else
     echo >&2 " !     A .godir is required. For instructions:"
     echo >&2 " !     http://mmcgrana.github.io/2012/09/getting-started-with-go-on-heroku"
     exit 1
 fi
+
+file=${GOFILE:-$ver.$(uname|tr A-Z a-z)-amd64$(platext $ver).tar.gz}
+url=${GOURL:-$(urlfor $ver $file)}
 
 if test -e $build/bin && ! test -d $build/bin
 then
@@ -42,28 +82,30 @@ then
     exit 1
 fi
 
-if test -d $cache/go-$ver/go
+if test -d $cache/$ver/go
 then
-    echo "-----> Using Go $ver"
+    echo "-----> Using $ver"
 else
     rm -rf $cache/* # be sure not to build up cruft
-    mkdir -p $cache/go-$ver
-    cd $cache/go-$ver
-    echo -n "-----> Installing Go $ver..."
+    mkdir -p $cache/$ver
+    cd $cache/$ver
+    echo -n "-----> Installing $ver..."
     curl -sO $url
     tar zxf $file
     rm -f $file
     echo " done"
 fi
 
-cp -R $cache/go-$ver/go $build/.goroot
+mkdir -p $build/bin
+cp -R $cache/$ver/go $build/.goroot
 
+GOBIN=$build/bin export GOBIN
 GOROOT=$build/.goroot export GOROOT
 GOPATH=$build/.go export GOPATH
-PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+PATH=$GOROOT/bin:$PATH
 
 
-if ! (which hg > /dev/null && which bzr > /dev/null)
+if ! (which hg >/dev/null && which bzr >/dev/null)
 then
     echo -n "       Installing Virtualenv..."
     virtualenv --python $python --distribute --never-download --prompt='(venv) ' $venv > /dev/null 2>&1
@@ -83,24 +125,48 @@ p=$GOPATH/src/$name
 mkdir -p $p
 cp -R $build/* $p
 
+# allow apps to specify cgo flags and set up /app symlink so things like CGO_CFLAGS=-I/app/... work
+env_dir="$3"
+if [ -d "$env_dir" ]
+then
+    ln -sfn $build /app/code
+    for cgo_opt in CGO_CFLAGS CGO_CPPFLAGS CGO_CXXFLAGS CGO_LDFLAGS
+    do
+        if [ -f "$env_dir/$cgo_opt" ]
+        then
+            export "$cgo_opt=$(cat "$env_dir/$cgo_opt")"
+        fi
+    done
+fi
+
+FLAGS=(-tags heroku)
+if test -f "$env_dir/GO_GIT_DESCRIBE_SYMBOL"
+then
+    git_describe=$(git describe --tags --always)
+    git_describe_symbol=$(cat "$env_dir/GO_GIT_DESCRIBE_SYMBOL")
+    FLAGS=(${FLAGS[@]} -ldflags "-X $git_describe_symbol $git_describe")
+fi
+
 unset GIT_DIR # unset git dir or it will mess with goinstall
 cd $p
-if test -f $build/Godeps
+if test -e $build/Godeps
 then
-    echo "-----> Running: godep go get -tags heroku ./..."
-    godep go get -tags heroku ./...
+    if test -d $build/vendor
+    then
+        # go1.6+ or GO15VENDOREXPERIMENT
+        echo "-----> Running: godep restore"
+        godep restore
+    else
+        echo "-----> Copying workspace"
+        cp -R $(godep path)/* $GOPATH
+        echo "-----> Running: godep go install ${FLAGS[@]} ./..."
+        godep go install "${FLAGS[@]}" ./...
+    fi
 else
-    echo "-----> Running: go get -tags heroku ./..."
-    go get -tags heroku ./...
+    echo "-----> Running: go get ${FLAGS[@]} ./..."
+    go get "${FLAGS[@]}" ./...
 fi
 
-mkdir -p $build/bin
-if test -d $GOPATH/bin 
-then
-    mv $GOPATH/bin/* $build/bin
-fi
-
-rm -rf $build/.heroku
 
 mkdir -p $build/.profile.d
 echo 'PATH=$PATH:$HOME/bin' > $build/.profile.d/go.sh

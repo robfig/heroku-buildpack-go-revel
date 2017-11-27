@@ -2,6 +2,13 @@
 # bin/release <build-dir>
 
 name=$(cat $1/.godir)
+
+# Get the Revel mode from the REVEL_MODE environment variable (defaults to "prod")
+env=$REVEL_MODE
+if [ -z "$env" ]; then
+  env="prod"
+fi
+
 cat <<EOF
 ---
 config_vars:
@@ -9,7 +16,5 @@ config_vars:
   GOROOT: /app/.goroot
   GOPATH: /app/.go
 default_process_types:
-  web: revel run $name prod \$PORT
+  web: revel run $name $env \$PORT
 EOF
-
-

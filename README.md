@@ -32,7 +32,7 @@ $ find . -type f
 ./conf/app.conf
 ./conf/routes
 
-$ heroku create -b https://github.com/robfig/heroku-buildpack-go-revel.git
+$ heroku create -b https://github.com/revel/heroku-buildpack-go-revel.git
 ...
 ```
 
@@ -62,6 +62,22 @@ $ git push heroku master
 The buildpack will detect your repository as Revel if it
 contains the `conf/app.conf` and `conf/routes` files.
 
+It's possible to specify the revel mode by setting the REVEL_MODE environment variable. "prod" will be the default mode.
+
+#### Dependencies and private repositories
+If you want to use private repositories you just need to create Godeps folder with this command:
+```
+$ godep save ./...
+```
+and commit your changes:
+```
+$ git add -A . 
+$ git commit -a -m "Dependencies"
+```
+Once the `Godeps` created and committed you can push your changes (deploy):
+```
+$ git push heroku master
+```
 ## Hacking on this Buildpack
 
 To change this buildpack, fork it on GitHub. Push
